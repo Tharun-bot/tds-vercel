@@ -9,10 +9,11 @@ from pydantic import BaseModel, Field
 
 app = FastAPI()
 
+# CORS middleware must be registered on the FastAPI app.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -20,25 +21,22 @@ DATA_FILE = Path(__file__).with_name("telemetry.json")
 
 
 def load_telemetry():
-    with DATA_FILE.open("r", encoding="utf-8") as file:
-        return json.load(file)
+    with DATA_FILE.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def percentile95(values):
     values = sorted(values)
-
     if len(values) == 1:
         return values[0]
 
-    # Linear interpolation, as used by NumPy's default percentile.
     position = 0.95 * (len(values) - 1)
     lower = math.floor(position)
     upper = math.ceil(position)
 
-    return (
-        values[lower]
-        + (position - lower) * (values[upper] - values[lower])
-    )
+    return values[lower] + (
+        position - lower
+    ) * (values[upper] - values[lower])
 
 
 class MetricsRequest(BaseModel):
@@ -68,27 +66,15 @@ def calculate_metrics(request: MetricsRequest):
             }
             continue
 
-        latencies = [
-            float(row["latency_ms"]) for row in selected
-        ]
-
-        uptimes = [
-            float(row["uptime_pct"]) for row in selected
-        ]
+        latencies = [float(row["latency_ms"]) for row in selected]
+        uptimes = [float(row["uptime_pct"]) for row in selected]
 
         result[region] = {
-            "avg_latency": round(
-                sum(latencies) / len(latencies), 2
-            ),
-            "p95_latency": round(
-                percentile95(latencies), 2
-            ),
-            "avg_uptime": round(
-                sum(uptimes) / len(uptimes), 3
-            ),
+            "avg_latency": round(sum(latencies) / len(latencies), 2),
+            "p95_latency": round(percentile95(latencies), 2),
+            "avg_uptime": round(sum(uptimes) / len(uptimes), 3),
             "breaches": sum(
-                latency > request.threshold_ms
-                for latency in latencies
+                value > request.threshold_ms for value in latencies
             ),
         }
 
